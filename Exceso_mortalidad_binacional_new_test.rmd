@@ -1,0 +1,416 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+
+library(tidyverse)
+library(magrittr)
+library(glue)
+library(lubridate)
+library(scales)
+
+rename_metrics<-function(x){
+  metrics_list<-unlist(strsplit('q90;observed_deaths;farrington_est;mean;mean_farrington;estimated_mean',';'))
+  metrics_list_names<-unlist(strsplit('Estimation by Endemic channel;Observed Deaths;Estimation by Farrington;Historical mean;Mean by Farrington(GLM);Mean by Farrington',';'))
+  if(x %in% metrics_list){
+  idx<-match(x,metrics_list)
+   metrics_list_names[idx]
+  }else{
+    x
+    }
+}
+
+
+
+convertWeek<-function(year,week)
+{
+  lubridate::ymd( glue("{year}-01-01") ) + lubridate::weeks( week - 1 )
+  }
+
+Sys.setlocale("LC_TIME", "C")
+
+#Sys.setlocale("LC_TIME", "en_US")
+
+#Sys.setlocale("LC_TIME", "Spanish_Mexico.1252")
+
+```
+
+
+
+
+```{r}
+
+PATH_mx<-r"(G:\Mi unidad\TAMUMX\TAMUMXGEO\Mortalidad\dataMXExcess_report.csv)"
+PATH_usa<-r"(G:\Mi unidad\TAMUMX\TAMUMXGEO\Mortalidad\dataUSAExcess_report.csv)"
+
+mx<-read_csv(PATH_mx)%>% 
+  select(c(15,1:12))%>% 
+  rename(year=anio_regis,
+            week=week_regis,
+            state=nombre)%>% 
+  pivot_longer(.,cols=5:13,names_to='metric',values_to='deaths') %>% 
+  mutate(country='MX') %>% 
+  select(-ent_regis)
+
+
+
+usa<-read_csv(PATH_usa) %>% 
+  select(-c(13)) %>% 
+rename(year=anio_regis,
+            week=week_regis,
+            state=ent_regis) %>% 
+  pivot_longer(.,cols=4:12,names_to='metric',values_to='deaths') %>% 
+  mutate(country='USA')
+
+
+
+#global<-rbind(mx,usa) %>% 
+ #       filter(metric %in% metrics_list) %>% 
+  #      mutate(metric=sapply(metric,rename_metrics))
+
+  
+
+
+
+```
+
+
+## Comparativa binacional
+
+
+### Solo farrington
+
+```{r}
+# list metrics
+
+metrics_list<-unlist(strsplit('q90;observed_deaths;farrington_est;mean;mean_farrington;estimated_mean',';'))
+
+metrics_list<-unlist(strsplit('observed_deaths;farrington_est;mean_farrington;estimated_mean',';'))
+
+
+# Rename metrics
+
+usa_tmp<-usa %>% 
+        filter(state=='United States') %>% 
+        mutate(deaths=deaths/330000)
+
+mx_tmp<-mx %>% 
+        filter(state=='Nacional') %>% 
+        mutate(deaths=deaths/127000)
+
+
+      rbind(mx_tmp,usa_tmp) %>% 
+        filter(metric %in% metrics_list) %>% 
+        mutate(metric=sapply(metric,rename_metrics),
+               date=convertWeek(year,week)) %>% 
+                filter(date<ymd('2021-03-01')) %>% 
+        ggplot()+
+        aes(x=date,y=deaths, col=metric, linetype=country) +
+        geom_line(size = 1, alpha = 1) +
+  labs(x='2020',
+       y='Deaths out of 1000', 
+       title='Comparative Observed Weekly Deaths vs Expected Deaths',
+       #subtitle = 'covid mortality rate (100,000 pop) MX:165.43  USA:179.73') +
+       subtitle = 'Covid mortality rate (1000 pop) MX:1.65  USA:1.79') +
+    theme(legend.direction = "horizontal", legend.position = "bottom", legend.box="vertical", legend.margin=margin(),legend.title=element_blank(),
+          plot.caption = element_text( size = 6,face = 'italic'),axis.text.x = element_text(angle = 45, hjust=1)) +
+  scale_x_date(breaks = pretty_breaks(20))
+ggsave(r"(G:\Mi unidad\TAMUMX\TAMUMXGEO\Mortalidad\img_brief\binational_scale_farr.png)")
+
+      
+```
+
+
+### Canal Endemico
+
+```{r}
+# list metrics
+
+metrics_list<-unlist(strsplit('q90;observed_deaths;farrington_est;mean;mean_farrington;estimated_mean',';'))
+
+metrics_list<-unlist(strsplit('observed_deaths;q90;mean',';'))
+
+
+# Rename metrics
+
+usa_tmp<-usa %>% 
+        filter(state=='United States') %>% 
+        mutate(deaths=deaths/330000)
+
+mx_tmp<-mx %>% 
+        filter(state=='Nacional') %>% 
+        mutate(deaths=deaths/127000)
+
+
+      rbind(mx_tmp,usa_tmp) %>% 
+        filter(metric %in% metrics_list) %>% 
+        mutate(metric=sapply(metric,rename_metrics),
+               date=convertWeek(year,week)) %>% 
+                filter(date<ymd('2021-03-01')) %>% 
+        ggplot()+
+        aes(x=date,y=deaths, col=metric, linetype=country) +
+        geom_line(size = 1, alpha = 1) +
+  labs(x='2020',
+       y='Deaths out of 1000', 
+       title='Comparative Observed Weekly Deaths vs Expected Deaths',
+       #subtitle = 'covid mortality rate (100,000 pop) MX:165.43  USA:179.73') +
+       subtitle = 'Covid mortality rate (1000 pop) MX:1.65  USA:1.79') +
+    theme(legend.direction = "horizontal", legend.position = "bottom", legend.box="vertical", legend.margin=margin(),legend.title=element_blank(),
+          plot.caption = element_text( size = 6,face = 'italic'),axis.text.x = element_text(angle = 45, hjust=1)) +
+  scale_x_date(breaks = pretty_breaks(20))
+ggsave(r"(G:\Mi unidad\TAMUMX\TAMUMXGEO\Mortalidad\img_brief\binational_scale_CE.png)")
+
+```
+
+
+
+
+## Zona de frontera
+
+```{r}
+metrics_list<-unlist(strsplit('observed_deaths;farrington_est;mean_farrington;estimated_mean',';'))
+
+usa_tmp<-usa %>% 
+        filter(state %in% c('California','Arizona','New Mexico','Texas')) %>% 
+        group_by(country,year,week,metric) %>%
+        summarise(deaths=sum(deaths)) %>% 
+        mutate(deaths=deaths/77952)
+
+mx_tmp<-mx %>% 
+        filter(state %in% c('BAJA CALIFORNIA','SONORA','CHIHUHUA','TAMAULIPAS','COAHUILA','NUEVO LEÓN')) %>% 
+  group_by(country,year,week,metric) %>%
+  summarise(deaths=sum(deaths)) %>% 
+  mutate(deaths=deaths/22914)
+
+
+rbind(mx_tmp,usa_tmp) %>% 
+        filter(metric %in% metrics_list) %>% 
+        mutate(metric=sapply(metric,rename_metrics),
+               date=convertWeek(year,week)) %>% 
+                filter(date<ymd('2021-03-01')) %>% 
+        ggplot()+
+        aes(x=date,y=deaths, col=metric, linetype=country) +
+        geom_line(size = 1, alpha = 1) +
+  labs(x='2020',
+       y='Deaths out of 1000', 
+       title='Comparative Observed Weekly Deaths vs Expected Deaths',
+       #subtitle = 'covid mortality rate (100,000 pop) MX:165.43  USA:179.73') +
+       subtitle = 'Covid mortality rate (1000 pop) MX:1.65  USA:1.79') +
+    theme(legend.direction = "horizontal", legend.position = "bottom", legend.box="vertical", legend.margin=margin(),legend.title=element_blank(),
+          plot.caption = element_text( size = 6,face = 'italic'),axis.text.x = element_text(angle = 45, hjust=1)) +
+  scale_x_date(breaks = pretty_breaks(20))
+ggsave(r"(G:\Mi unidad\TAMUMX\TAMUMXGEO\Mortalidad\img_brief\binational_scale_CE.png)")
+
+
+
+
+```
+
+
+
+
+
+## Borderzone scaled_regional
+
+
+
+```{r}
+global_mx<-datamx %>%
+  filter(ent_name %in% c('BAJA CALIFORNIA','SONORA','CHIHUHUA','TAMAULIPAS','COAHUILA','NUEVO LEÓN')) %>% 
+  group_by(week,metric) %>% 
+  summarise(deaths=sum(deaths)) %>% 
+  filter( metric %in% c('Observed','Estimated','Q90') ) %>% 
+  mutate(metric=sapply(metric,rename_metrics),country='MX',year=2020,state='Mexico',  deaths=deaths/22914)
+
+global_usa<-datausa %>% 
+  filter(state %in% c('California','Arizona','New Mexico','Texas'), metric %in% c('Observed','Death_estimated','Q90')) %>% 
+ group_by(week,metric) %>% 
+  summarise(deaths=sum(deaths)) %>% 
+  mutate(metric=sapply(metric,rename_metrics),country='USA',year=2020,state='USA',  deaths=deaths/77952)
+
+global_df<-rbind(global_mx,global_usa) %>% filter(week>2) %>% 
+  mutate(date=lubridate::ymd( "2020-01-01" ) + lubridate::weeks( week - 1 ))
+
+
+ggplot(global_df) +
+  aes(x=date,y=deaths, col=metric, linetype=country)+
+  geom_line(size = 1, alpha = 1)+
+  labs(x='2020',
+       y='Deaths out of 1000', 
+       title='Comparative Observed Weekly Deaths vs Expected Deaths',
+      #subtitle = 'covid mortality rate border zone (100,000 pop) MX:174.84  USA:104.73' , 
+      subtitle = 'Covid mortality rate border zone (1000 pop) MX:1.74  USA:1.04' , 
+       caption='For USA includes the states: Arizona, California, New Mexico, Texas and for Mexico includes: Baja California, Coahuila,Chihuahua, Tamaulipas, Nuevo León and Sonora')+
+    theme(legend.direction = "horizontal", legend.position = "bottom", legend.box="vertical", legend.margin=margin(),legend.title=element_blank(),
+          plot.caption = element_text( size = 6,face = 'italic'),axis.text.x = element_text(angle = 45, hjust=1))+
+  scale_x_date(breaks = pretty_breaks(20))
+ggsave(r"(C:\Users\Roms\Downloads\img_scal\borderzone_scale_regional.png)")
+
+
+```
+
+
+
+
+
+
+
+
+
+## Baja California
+
+
+```{r}
+global_mx<-datamx %>%
+  filter(ent_name %in% c('BAJA CALIFORNIA')) %>% 
+  group_by(week,metric) %>% 
+  summarise(deaths=sum(deaths)) %>% 
+  filter( metric %in% c('Observed','Estimated','Q90') ) %>% 
+  mutate(metric=sapply(metric,rename_metrics),country='MX',year=2020,state='Mexico',  deaths=deaths/127000)
+
+global_usa<-datausa %>% 
+  filter(state %in% c('California'), metric %in% c('Observed','Death_estimated','Q90')) %>% 
+ group_by(week,metric) %>% 
+  summarise(deaths=sum(deaths)) %>% 
+  mutate(metric=sapply(metric,rename_metrics),country='USA',year=2020,state='USA',  deaths=deaths/330000)
+
+global_df<-rbind(global_mx,global_usa) %>% filter(week>2) %>% 
+  mutate(date=lubridate::ymd( "2020-01-01" ) + lubridate::weeks( week - 1 ))
+
+
+ggplot(global_df) +
+  aes(x=date,y=deaths, col=metric, linetype=country)+
+  geom_line(size = 1, alpha = 1)+
+  labs(x='2020',
+       y='Deaths out of 1000', 
+       title='Comparative Observed Weekly Deaths vs Expected Deaths',
+        subtitle = 'Covid mortality rate border zone -CAL- (1000 pop) MX:2.16  USA:0.88' , 
+#subtitle = 'covid mortality rate border zone (100,000 pop) MX:216.02  USA:87.90' , 
+              caption='For USA includes the state California and for Mexico includes Baja California')+
+    theme(legend.direction = "horizontal", legend.position = "bottom", legend.box="vertical", legend.margin=margin(),legend.title=element_blank(),
+          plot.caption = element_text( size = 6,face = 'italic')) 
+
+ggsave(r"(C:\Users\Roms\Downloads\img_scal\borderzone_california.png)")
+
+
+```
+
+
+
+regional
+
+```{r}
+global_mx<-datamx %>%
+  filter(ent_name %in% c('BAJA CALIFORNIA')) %>% 
+  group_by(week,metric) %>% 
+  summarise(deaths=sum(deaths)) %>% 
+  filter( metric %in% c('Observed','Estimated','Q90') ) %>% 
+  mutate(metric=sapply(metric,rename_metrics),country='MX',year=2020,state='Mexico',  deaths=deaths/3769)
+
+global_usa<-datausa %>% 
+  filter(state %in% c('California'), metric %in% c('Observed','Death_estimated','Q90')) %>% 
+ group_by(week,metric) %>% 
+  summarise(deaths=sum(deaths)) %>% 
+  mutate(metric=sapply(metric,rename_metrics),country='USA',year=2020,state='USA',  deaths=deaths/39538)
+
+global_df<-rbind(global_mx,global_usa) %>% filter(week>2) %>% 
+  mutate(date=lubridate::ymd( "2020-01-01" ) + lubridate::weeks( week - 1 ))
+
+
+ggplot(global_df) +
+  aes(x=date,y=deaths, col=metric, linetype=country)+
+  geom_line(size = 1, alpha = 1)+
+  labs(x='2020',
+       y='Deaths out of 1000', 
+       title='Comparative Observed Weekly Deaths vs Expected Deaths',
+        subtitle = 'Covid mortality rate border zone -CAL- (1000 pop) MX:2.16  USA:0.88' , 
+#subtitle = 'covid mortality rate border zone (100,000 pop) MX:216.02  USA:87.90' , 
+              caption='For USA includes the state California and for Mexico includes Baja California')+
+    theme(legend.direction = "horizontal", legend.position = "bottom", legend.box="vertical", legend.margin=margin(),legend.title=element_blank(),
+          plot.caption = element_text( size = 6,face = 'italic'),axis.text.x = element_text(angle = 45, hjust=1))+
+  scale_x_date(breaks = pretty_breaks(20))
+ggsave(r"(C:\Users\Roms\Downloads\img_scal\borderzone_california_regional.png)")
+
+
+```
+
+
+## Texas
+
+
+```{r}
+global_mx<-datamx %>%
+  filter(ent_name %in% c('CHIHUHUA','TAMAULIPAS','COAHUILA','NUEVO LEÓN')) %>% 
+  group_by(week,metric) %>% 
+  summarise(deaths=sum(deaths)) %>% 
+  filter( metric %in% c('Observed','Estimated','Q90') ) %>% 
+  mutate(metric=sapply(metric,rename_metrics),country='MX',year=2020,state='Mexico',  deaths=deaths/127000)
+
+global_usa<-datausa %>% 
+  filter(state %in% c('Texas'), metric %in% c('Observed','Death_estimated','Q90')) %>% 
+ group_by(week,metric) %>% 
+  summarise(deaths=sum(deaths)) %>% 
+  mutate(metric=sapply(metric,rename_metrics),country='USA',year=2020,state='USA',  deaths=deaths/330000)
+
+global_df<-rbind(global_mx,global_usa) %>% filter(week>2,week<51) %>% 
+  mutate(date=lubridate::ymd( "2020-01-01" ) + lubridate::weeks( week - 1 ))
+
+
+ggplot(global_df) +
+  aes(x=date,y=deaths, col=metric, linetype=country)+
+  geom_line(size = 1, alpha = 1)+
+  labs(x='Weeks 2020',y='Deaths per 1000',       title='Comparative Observed Deaths vs Expected Deaths',
+ #       subtitle = 'covid mortality rate border zone (100,000 pop) MX:165.20  USA:216.02' ,
+       subtitle = 'Covid mortality rate border zone -TX- (1000 pop) MX:1.65  USA:1.17' ,caption='For USA includes the state Texas and for Mexico includes Coahuila,Chihuahua, Nuevo León and Tamaulipas')+
+    theme(legend.direction = "horizontal", legend.position = "bottom", legend.box="vertical", legend.margin=margin(),legend.title=element_blank(),
+          plot.caption = element_text( size = 6,face = 'italic')) 
+
+ggsave(r"(C:\Users\Roms\Downloads\img_scal\borderzone_texas.png)")
+
+```
+
+
+
+
+regional
+
+```{r}
+global_mx<-datamx %>%
+  filter(ent_name %in% c('CHIHUHUA','TAMAULIPAS','COAHUILA','NUEVO LEÓN')) %>% 
+  group_by(week,metric) %>% 
+  summarise(deaths=sum(deaths)) %>% 
+  filter( metric %in% c('Observed','Estimated','Q90') ) %>% 
+  mutate(metric=sapply(metric,rename_metrics),country='MX',year=2020,state='Mexico',  deaths=deaths/16200)
+
+global_usa<-datausa %>% 
+  filter(state %in% c('Texas'), metric %in% c('Observed','Death_estimated','Q90')) %>% 
+ group_by(week,metric) %>% 
+  summarise(deaths=sum(deaths)) %>% 
+  mutate(metric=sapply(metric,rename_metrics),country='USA',year=2020,state='USA',  deaths=deaths/29145)
+
+global_df<-rbind(global_mx,global_usa) %>% filter(week>2,week<51) %>% 
+  mutate(date=lubridate::ymd( "2020-01-01" ) + lubridate::weeks( week - 1 ))
+
+
+ggplot(global_df) +
+  aes(x=date,y=deaths, col=metric, linetype=country)+
+  geom_line(size = 1, alpha = 1)+
+  labs(x='2020',
+       y='Deaths out of 1000', 
+       title='Comparative Observed Weekly Deaths vs Expected Deaths',
+ #       subtitle = 'covid mortality rate border zone (100,000 pop) MX:165.20  USA:216.02' ,
+       subtitle = 'Covid mortality rate border zone -TX- (1000 pop) MX:1.65  USA:1.17' ,caption='For USA includes the state Texas and for Mexico includes Coahuila,Chihuahua, Nuevo León and Tamaulipas')+
+    theme(legend.direction = "horizontal", legend.position = "bottom", legend.box="vertical", legend.margin=margin(),legend.title=element_blank(),
+          plot.caption = element_text( size = 6,face = 'italic'),axis.text.x = element_text(angle = 45, hjust=1))+
+  scale_x_date(breaks = pretty_breaks(20))
+ggsave(r"(C:\Users\Roms\Downloads\img_scal\borderzone_texas_regional.png)")
+
+```
+
+
+
+

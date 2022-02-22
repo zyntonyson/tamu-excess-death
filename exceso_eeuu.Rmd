@@ -1,0 +1,272 @@
+---
+title: "Estimacion exceso de muertes (EEUU)"
+subtitle: "Actualizacion Mayo 2021"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+```{r message= FALSE, warning=FALSE}
+setwd(getwd())
+library(tidyverse)
+library(surveillance)
+library(lubridate)
+library(glue)
+library(magrittr)
+library(reshape2)
+library(readxl)
+source("tamu_functions/common_functions.R")
+```
+
+
+
+
+## Historical data
+
+
+```{r message= FALSE, warning=FALSE}
+
+# source https://data.cdc.gov/NCHS/Weekly-Counts-of-Deaths-by-State-and-Select-Causes/3yf8-kanr/data
+
+PATH<-"usa_data/Weekly_Counts_of_Deaths_by_State_and_Select_Causes__2014-2019.csv"
+
+historical_deaths_usa <- read_csv(PATH) %>% 
+  select(`Jurisdiction of Occurrence`,`MMWR Year`,`MMWR Week`,`All  Cause`) %>%
+  rename(ent_regis=`Jurisdiction of Occurrence`,anio_regis=`MMWR Year`,week_regis=`MMWR Week`,count=`All  Cause`)
+  
+
+
+```
+
+```{r}
+glue(" Rows:{nrow(historical_deaths_usa)}")
+head(historical_deaths_usa )
+```
+
+
+## Mortality data during COVID pandemic
+
+```{r message= FALSE, warning=FALSE}
+
+# source https://data.cdc.gov/NCHS/Weekly-Provisional-Counts-of-Deaths-by-State-and-S/muzy-jte6/data
+
+PATH<-"usa_data/Weekly_Provisional_Counts_of_Deaths_by_State_and_Select_Causes__2020-2022.csv"
+
+mortality_usa_pandemic <- read_csv(PATH)%>% 
+  select(`Jurisdiction of Occurrence` ,`MMWR Year`,`MMWR Week`,`All Cause`)%>%
+  rename(ent_regis=`Jurisdiction of Occurrence`,anio_regis=`MMWR Year`,week_regis=`MMWR Week`,count=`All Cause`)
+  
+
+```
+
+```{r}
+glue(" Rows:{nrow(mortality_usa_pandemic)}")
+head(mortality_usa_pandemic)
+```
+
+
+
+## Estimation by endemic channel
+
+
+```{r}
+
+endemic_channel<- historical_deaths_usa %>%
+  filter(anio_regis>=2015) %>% 
+  group_by(ent_regis,week_regis) %>% 
+  summarise(q25=quantile(count,0.25),
+            q50=quantile(count,0.5),
+            q75=quantile(count,0.75),
+            q90=quantile(count,0.9))
+
+```
+
+
+```{r}
+glue(" Rows:{nrow(endemic_channel)}")
+head(endemic_channel)
+```
+
+
+
+## Estimation Farrington 
+
+## Stack all observations
+
+We present two approaches 
+
+
+
+### Estimations using all available data
+
+```{r}
+farrington_dataset_usa<-rbind(historical_deaths_usa,mortality_usa_pandemic)
+
+```
+
+```{r}
+glue(" Rows:{nrow(farrington_dataset_usa)}")
+head(farrington_dataset_usa)
+```
+
+
+
+```{r}
+
+#all available data
+farrington_estimations_usa_all<-data.frame()
+id_est_unique<-unique(farrington_dataset_usa$ent_regis)
+for(id_est in id_est_unique)
+{
+
+# Slice for each states since 2019
+tmp<- farrington_dataset_usa %>% 
+      filter(ent_regis==id_est) %>%
+      mutate(state=0) %>% 
+      arrange(anio_regis,week_regis)
+    
+# DisProg Object
+DisProg<-create.disProg(week = 1:nrow(tmp),
+                                  observed = tmp$count,
+                                  state= tmp$state,
+                                  start = c(2014,1))
+
+# Predictions
+n<-length(DisProg$observed)
+observations=110
+control <- list(b=4,
+                w=3,
+                range=(n-observations-1):n,
+                reweight=TRUE, 
+                verbose=FALSE,
+                alpha=0.05)
+results<-algo.farrington(DisProg,control = control)
+
+farrington_estimations_usa_all<-rbind(farrington_estimations_usa_all,
+                     data.frame(week_regis=tmp$week_regis[(n-observations-1):n],
+                                anio_regis=tmp$anio_regis[(n-observations-1):n],
+                                ent_regis=id_est,
+                                estimated=results$upperbound))
+
+}
+
+```
+
+
+
+
+
+```{r}
+glue(" Rows:{nrow(farrington_estimations_usa_all)}")
+head(farrington_estimations_usa_all)
+```
+
+
+
+### Estimations using historical until 2020
+
+
+```{r}
+
+#until 2020
+farrington_estimations_usa<-data.frame()
+id_est_unique<-unique(farrington_dataset_usa$ent_regis)
+for(id_est in id_est_unique)
+{
+
+# Slice for each states since 2019
+tmp<- farrington_dataset_usa %>% 
+      filter(ent_regis==id_est,anio_regis<2021) %>%
+      mutate(state=0) %>% 
+      arrange(anio_regis,week_regis)
+    
+# DisProg Object
+DisProg<-create.disProg(week = 1:nrow(tmp),
+                                  observed = tmp$count,
+                                  state= tmp$state,
+                                  start = c(2014,1))
+
+# Predictions
+n<-length(DisProg$observed)
+observations=53
+control <- list(b=4,
+                w=3,
+                range=(n-observations-1):n,
+                reweight=TRUE, 
+                verbose=FALSE,
+                alpha=0.05)
+results<-algo.farrington(DisProg,control = control)
+
+farrington_estimations_usa<-rbind(farrington_estimations_usa,
+                     data.frame(week_regis=tmp$week_regis[(n-observations-1):n],
+                                anio_regis=tmp$anio_regis[(n-observations-1):n],
+                                ent_regis=id_est,
+                                estimated=results$upperbound))
+
+}
+
+farrington_estimations_usa<-farrington_estimations_usa %>% 
+  filter(anio_regis==2020) %>% 
+  select(ent_regis,week_regis,estimated) %>% 
+  rename(farrington_partial=estimated)
+
+```
+
+
+
+
+
+```{r}
+glue(" Rows:{nrow(farrington_estimations_usa)}")
+head(farrington_estimations_usa)
+```
+
+
+
+
+
+
+
+# Stack data
+
+
+## Raw data
+
+```{r}
+excess_of_death_usa<-mortality_usa_pandemic %>% 
+  rename(deaths_count=count) %>% 
+  left_join(endemic_channel %>% select(ent_regis,week_regis,q90),by=c('ent_regis','week_regis')) %>% 
+  rename(channel_endemic_estimation=q90) %>% 
+    left_join(farrington_estimations_usa_all ,by=c('ent_regis','anio_regis','week_regis')) %>% 
+  rename(farrington_estimation_all=estimated) %>% 
+  left_join(farrington_estimations_usa ,by=c('ent_regis','week_regis')) %>% 
+  mutate(date_ref=convertWeek(anio_regis,week_regis))
+
+```
+
+
+
+## pivot data
+
+```{r}
+excess_of_death_usa %>%
+  filter(week_regis<53) %>% 
+  select(-c(2,3)) %>% 
+  select(c(6,1:5)) %>%
+  pivot_longer(.,cols=3:6,names_to='metric',values_to='deaths') %>% 
+  filter(ent_regis=='United States') %>% 
+  filter(date_ref<ymd('2022-01-15')) %>%
+  ggplot() +
+  aes(x=date_ref,y=deaths,color=metric)+
+  geom_line()
+
+
+```
+
+
+
+
+
+

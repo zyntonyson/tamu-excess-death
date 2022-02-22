@@ -264,6 +264,19 @@ excess_of_death_usa %>%
 
 
 ```
+# Saving
+
+```{r}
+excess_of_death_usa %>% 
+  write.csv("reports/excess_death_usa.csv",row.names = FALSE)
+
+excess_of_death_usa %>%
+  filter(week_regis<53) %>% 
+  select(-c(2,3)) %>% 
+  select(c(6,1:5)) %>%
+  pivot_longer(.,cols=3:6,names_to='metric',values_to='deaths') %>% 
+  write.csv("reports/excess_death_usa_gather.csv",row.names = FALSE)
+```
 
 
 

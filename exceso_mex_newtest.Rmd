@@ -188,7 +188,7 @@ estimation_farrington_mx_all<-rbind(estimation_farrington_mx_all,
                      data.frame(week_regis=tmp$week_regis[(n-observations-1):n],
                                 anio_regis=tmp$anio_regis[(n-observations-1):n],
                                 ent_regis=id_est,
-                                farrington_all=results$upperbound))
+                                farrington_estimation_all=results$upperbound))
 }
 
 
@@ -270,9 +270,9 @@ head(estimation_farrington_mx,20)
 ```{r }
 PATH_CATALOGUE="mex_data/catalogo_entidades_mx.csv"
 excess_death_mx<-mortality_mx_pandemic %>% 
-  rename(deaths=count) %>% 
+  rename(deaths_count=count) %>% 
   left_join(endemic_channel_mx %>% select(ent_regis,week_regis,q90), by=c('ent_regis','week_regis')) %>% 
-  rename(estimation_endemic_channel=q90) %>% 
+  rename(channel_endemic_estimation=q90) %>% 
   left_join(estimation_farrington_mx_all, by=c('ent_regis','week_regis','anio_regis')
             ) %>% 
   left_join(estimation_farrington_mx %>% filter(anio_regis==2020) %>% select(-anio_regis), by=c('ent_regis','week_regis')
@@ -296,6 +296,21 @@ excess_death_mx<-mortality_mx_pandemic %>%
   ggplot() +
   aes(x=date_ref,y=deaths,color=metric)+
   geom_line()
+
+```
+
+# Saving
+
+```{r}
+excess_death_mx %>% 
+  write.csv("reports/excess_death_mx.csv",row.names = FALSE)
+
+excess_death_mx %>%
+  filter(week_regis<53) %>%
+  ungroup() %>% 
+  select(c(10,8,4:7)) %>%  
+  pivot_longer(.,cols=3:6,names_to='metric',values_to='deaths') %>% 
+  write.csv("reports/excess_death_mx_gather.csv",row.names = FALSE)
 
 ```
 

@@ -170,15 +170,82 @@ data<-read_csv('https://raw.githubusercontent.com/zyntonyson/tamu-excess-death/m
 
 data_binacional<- read_csv('https://raw.githubusercontent.com/zyntonyson/tamu-excess-death/main/reports/excess_death_usa.csv') %>% 
   filter(ent_regis=="United States") %>% 
+  filter(week_regis<53) %>% 
   select(date_ref,deaths_count,channel_endemic_estimation,farrington_partial) %>%
-  mutate(country='USA')
-  rbind(
+  mutate(country='USA') %>% 
+  rbind(.,
     read_csv('https://raw.githubusercontent.com/zyntonyson/tamu-excess-death/main/reports/excess_death_mx.csv') %>% 
-      filter(name=="National") %>% 
+      filter(name=="NATIONAL") %>% 
       select(date_ref,deaths_count,channel_endemic_estimation,farrington_partial) %>% 
     mutate(country='MX')
+  ) %>% 
+  mutate(
+    excess_death_percent_ce=(deaths_count-channel_endemic_estimation)/channel_endemic_estimation,
+    excess_death_percent_ce=ifelse(excess_death_percent_ce<0,0,excess_death_percent_ce),
+    excess_death_percent_ff=(deaths_count-farrington_partial)/farrington_partial,
+    excess_death_percent_ff=ifelse(excess_death_percent_ff<0,0,excess_death_percent_ff)
   )
 
+# Global excesss
+data_binacional %>%
+  group_by(country) %>% 
+  summarise(deaths=sum(deaths_count),est=sum(channel_endemic_estimation)) %>% 
+  mutate(percent=100*((deaths/est)-1))
+
+
+data_binacional %>%
+  group_by(country) %>% 
+  summarise(deaths=sum(deaths_count),est=sum(farrington_partial)) %>% 
+  mutate(percent=100*((deaths/est)-1))
+
+
+
+# charts  Farrington
+data_binacional %>% 
+  ggplot()+
+  aes(x=date_ref,y=100*excess_death_percent_ff,color=country)+
+  geom_line(lwd=1.5)+
+  labs(
+    x='Date',
+    y='Excess of death (%)',
+    title='Comparative Excess of deaths MX-USA',
+    caption='Expected deaths were estimated by Farrington method',
+    subtitle='Global Excess MX:33.0%  USA:12.1%'
+  )+
+  theme(legend.title=element_blank(), 
+        legend.direction = "horizontal",
+        legend.text = element_text(size=8),
+        legend.position = "bottom", 
+        legend.key = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=1)
+        ) +
+  scale_x_date(breaks = pretty_breaks(10))
+ggsave("charts/22-02-21_binational_expected_deaths_Farrington.png",width = 21, height = 14, units = "cm")
+
+
+# Channel endemic
+
+
+data_binacional %>% 
+  ggplot()+
+  aes(x=date_ref,y=100*excess_death_percent_ce,color=country)+
+  geom_line(lwd=1.5)+
+  labs(
+    x='Date',
+    y='Excess of death (%)',
+    title='Comparative Excess of deaths MX-USA',
+    caption='Expected deaths were estimated by endemic channel method',
+    subtitle='Global Excess MX:47.1%  USA:17.2%'
+  )+
+  theme(legend.title=element_blank(), 
+        legend.direction = "horizontal",
+        legend.text = element_text(size=8),
+        legend.position = "bottom", 
+        legend.key = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=1)
+  ) +
+  scale_x_date(breaks = pretty_breaks(10))
+ggsave("charts/22-02-21_binational_expected_deaths_channel_endemic.png",width = 21, height = 14, units = "cm")
 
 
 

@@ -10,6 +10,7 @@ output:
 
 
 ```{r message= FALSE, warning=FALSE}
+setwd(getwd())
 library(tidyverse)
 library(surveillance)
 library(lubridate)
@@ -31,14 +32,12 @@ Finalmente para la estimaciones de Farrington y canal endémico se usan desde el
 **Fuente de datos** [Base de datos de mortalidad por fecha y ocurrencia por INEGI](https://www.inegi.org.mx/programas/mortalidad/#Datos_abiertos)
 
 ```{r message= FALSE, warning=FALSE}
-start_time <- Sys.time()
-
 #Cargado de datos historicos (el conjunto de datos MX incluye 2012-2019)
-df<-data.frame()
-PATH=r"(E:\TAMUMXGEO\Mortalidad\data\Defunciones\data)"
+historical_deaths_mx <-data.frame()
+PATH="mex_data/historical_mx"
 for( file in list.files(PATH))
 {
- test<-read_csv(glue(r"({PATH}\{file})"),) %>% select(ent_regis,dia_regis,mes_regis,anio_regis) %>%
+ test<-read_csv(glue("{PATH}/{file}"),) %>% select(ent_regis,dia_regis,mes_regis,anio_regis) %>%
   filter(dia_regis<=31,mes_regis<=12) %>% 
   mutate(week_regis=iso_week(anio_regis,mes_regis,dia_regis),
          ent_regis=as.numeric(ent_regis)) %>% 
@@ -51,17 +50,16 @@ for( file in list.files(PATH))
            ent_regis) %>% 
   summarise(count=n())
  
- df<- rbind(df,test)
+ historical_deaths_mx<- rbind(historical_deaths_mx,test)
 }
 
 # Crear agregado nacional  ent_regis = 0
-  test<-df %>% 
+  test<-historical_deaths_mx %>% 
   group_by(anio_regis,week_regis) %>% 
   summarise(count=sum(count)) %>% 
   transmute(anio_regis=anio_regis,week_regis=week_regis,ent_regis=0,count=count)
-  df<- rbind(df,test)
+  historical_deaths_mx<- rbind(historical_deaths_mx,test)
 
-Sys.time()- start_time
 
 ```
 
@@ -69,8 +67,8 @@ Sys.time()- start_time
 
 
 ```{r}
-glue(" Rows:{nrow(df)}")
-head(df,20)
+glue(" Rows:{nrow(historical_deaths_mx)}")
+head(historical_deaths_mx,20)
 ```
 
 
@@ -79,14 +77,13 @@ head(df,20)
 
 ## Estimacion de canal endémico
 
-Calculo de cuantiles 25,50,75,90. El cuantil 90 es el consideramos como valor esperado.
+Cálculo de cuantiles 25,50,75,90. El cuantil 90 es el consideramos como valor esperado.
 
 
 
-```{r}
-start_time <- Sys.time()
+```{r message= FALSE, warning=FALSE}
 
-canal_endemico<- df %>%
+endemic_channel_mx<- historical_deaths_mx %>%
   filter(anio_regis>=2015) %>% 
   group_by(ent_regis,week_regis) %>% 
   summarise(mean= mean(count),
@@ -95,10 +92,6 @@ canal_endemico<- df %>%
             q75=quantile(count,0.75),
             q90=quantile(count,0.9)
             )
-
-
-
-Sys.time()- start_time
 ```
 
 
@@ -106,8 +99,8 @@ Sys.time()- start_time
 
 
 ```{r}
-glue(" Rows:{nrow(canal_endemico)}")
-head(canal_endemico,20)
+glue(" Rows:{nrow(endemic_channel_mx)}")
+head(endemic_channel_mx,20)
 ```
 
 
@@ -116,37 +109,36 @@ head(canal_endemico,20)
 ## Anexar observaciones 2020
 
 
-```{r}
-start_time <- Sys.time()
+```{r message= FALSE, warning=FALSE}
 
-# Lectura datos 2020
+# Pandemic MX data
 
-PATH=r'(G:\Mi unidad\TAMUMX\TAMUMXGEO\Mortalidad\exceso_final\mex_data\DDAAxsom2021SE33.csv)'
+PATH='mex_data/DDAAxsom2021SE52.csv'
 
-test <- read_csv(PATH) %>% 
+mortality_mx_pandemic  <- read_csv(PATH) %>% 
   transmute(anio_regis=year(ymd(FECHA_DEFUNCION)),week_regis=week(ymd(FECHA_DEFUNCION)),ent_regis=as.numeric(ENTIDAD_REG)) %>% 
   filter(ent_regis<=32,week_regis<=52) %>% 
   group_by(anio_regis,week_regis,ent_regis) %>% 
-  summarise(count=n()) 
+  summarise(count=n()) %>% 
+  filter(anio_regis>2019)
 
 
 # Agregar datos nacionales
-national<- test %>% 
+national<- mortality_mx_pandemic  %>% 
   group_by(anio_regis,week_regis) %>% 
   summarise(count=sum(count)) %>% 
   transmute(anio_regis=anio_regis,week_regis=week_regis,ent_regis=0,count=count)
 
-df<-rbind(df,test,national)
+mortality_mx_pandemic<-rbind(mortality_mx_pandemic,national)
 
-Sys.time() - start_time
 
 ```
 
 
 
 ```{r}
-glue(" Rows:{nrow(df)}")
-head(df,20)
+glue(" Rows:{nrow(mortality_mx_pandemic)}")
+head(mortality_mx_pandemic,20)
 ```
 
 
@@ -155,18 +147,78 @@ head(df,20)
 
 ## Estimaciones Farrington por estado
 
-
+### all data
 ```{r}
-start_time <- Sys.time()
 
+estimation_farrington_mx_all<-data.frame()
 
-farrington_df<-data.frame()
-id_est_unique<-unique(df$ent_regis)
+id_est_unique<-historical_deaths_mx %>%
+      rbind(mortality_mx_pandemic) %>%
+      .$ent_regis %>% 
+        unique()
+
 for(id_est in id_est_unique)
 {
 
-# Slice por estado tomando hasta 2020
-tmp<- df %>% 
+# Slice for each states all data
+tmp<- historical_deaths_mx %>%
+      rbind(mortality_mx_pandemic) %>% 
+      filter(ent_regis==id_est) %>%
+      mutate(state=0) %>% 
+      arrange(anio_regis,week_regis)
+    
+# DisProg Object
+DisProg<-create.disProg(week = 1:nrow(tmp),
+                                  observed = tmp$count,
+                                  state= tmp$state,
+                                  start = c(2013,1))
+
+# Predictions
+n<-length(DisProg$observed)
+observations=110
+control <- list(b=4,
+                w=3,
+                range=(n-observations-1):n,
+                reweight=TRUE, 
+                verbose=FALSE,
+                alpha=0.05)
+results<-algo.farrington(DisProg,control = control)
+
+estimation_farrington_mx_all<-rbind(estimation_farrington_mx_all,
+                     data.frame(week_regis=tmp$week_regis[(n-observations-1):n],
+                                anio_regis=tmp$anio_regis[(n-observations-1):n],
+                                ent_regis=id_est,
+                                farrington_all=results$upperbound))
+}
+
+
+```
+
+
+```{r}
+glue(" Rows:{nrow(estimation_farrington_mx_all)}")
+head(estimation_farrington_mx_all,20)
+```
+
+
+### Partial data
+
+
+```{r}
+
+estimation_farrington_mx<-data.frame()
+
+id_est_unique<-historical_deaths_mx %>%
+      rbind(mortality_mx_pandemic) %>%
+      .$ent_regis %>% 
+        unique()
+
+for(id_est in id_est_unique)
+{
+
+# Slice for each states all data
+tmp<- historical_deaths_mx %>%
+      rbind(mortality_mx_pandemic) %>% 
       filter(ent_regis==id_est, anio_regis<2021) %>%
       mutate(state=0) %>% 
       arrange(anio_regis,week_regis)
@@ -177,154 +229,76 @@ DisProg<-create.disProg(week = 1:nrow(tmp),
                                   state= tmp$state,
                                   start = c(2013,1))
 
-# Predicciones para las 52 semanas finales
-a<-51
+# Predictions
 n<-length(DisProg$observed)
+observations=53
 control <- list(b=4,
                 w=3,
-                range=(n-a):n,
+                range=(n-observations-1):n,
                 reweight=TRUE, 
                 verbose=FALSE,
                 alpha=0.05)
 results<-algo.farrington(DisProg,control = control)
-glm_far<-algo.farrington.fitGLM(DisProg$observed,DisProg$week)
-N <- length(glm_far$fitted.values)
-fitted_values<-glm_far$fitted.values[(N-a):N]
-control <- list(b=4,
-                w=3,
-                range=(n-a):n,
-                reweight=TRUE, 
-                verbose=FALSE,
-                alpha=0.99)
-results_<-algo.farrington(DisProg,control = control)
 
-farrington_df<-rbind(farrington_df,
-                     data.frame(week_regis=1:length(results$upperbound),
+estimation_farrington_mx<-rbind(estimation_farrington_mx,
+                     data.frame(week_regis=tmp$week_regis[(n-observations-1):n],
+                                anio_regis=tmp$anio_regis[(n-observations-1):n],
                                 ent_regis=id_est,
-                                estimated=results$upperbound,
-                                mean_farrington=fitted_values,
-                                estimated_mean=results_$upperbound
-                                ))
-
+                                farrington_partial=results$upperbound))
 }
 
 
-Sys.time() - start_time
 ```
 
 
 ```{r}
-glue(" Rows:{nrow(farrington_df)}")
-head(farrington_df,20)
+glue(" Rows:{nrow(estimation_farrington_mx)}")
+head(estimation_farrington_mx,20)
 ```
 
 
 
 
 
-## Defunciones por COVID
-
-```{r}
-start_time <- Sys.time()
-# Incluye nacional con id = 0
-
-PATH=r'(G:\Mi unidad\TAMUMX\TAMUMXGEO\Mortalidad\exceso_final\mex_data\Casos_Diarios_Estado_Nacional_Defunciones_20210916.csv)'
-
-
-defunciones_covid<- read_csv(PATH) %>% 
-            pivot_longer(.,cols=!c(1:3),names_to='date',values_to='deaths') %>% 
-  mutate(week_regis=week(dmy(date)),anio_regis=year(dmy(date))
-         ) %>% 
-  rename(ent_regis=cve_ent) %>% 
-  mutate(ent_regis=as.numeric(ent_regis)) %>% 
-  group_by(anio_regis,week_regis,ent_regis) %>% 
-  summarise(covid_deaths=sum(deaths))
-Sys.time() - start_time
-
-```
-
-
-
-```{r}
-glue(" Rows:{nrow(defunciones_covid)}")
-head(defunciones_covid,20)
-```
 
 
 
 
-## Integración de datos
+
+## Data gathering
 
 ```{r }
-start_time <- Sys.time()
-  df %>% 
-  filter(anio_regis %in% c(2020,2021)) %>% 
-  rename(observed_deaths=count) %>% 
-  left_join(canal_endemico,by=c('ent_regis','week_regis')) %>% 
-  left_join(farrington_df,by=c('ent_regis','week_regis')) %>% 
-  rename(farrington_est=estimated) %>% 
-  left_join(defunciones_covid,by=c('anio_regis','ent_regis','week_regis')) %>% 
-  mutate(covid_deaths=replace_na_with_zeros(covid_deaths)) %>% 
-  write.csv(x=.,file=r"(G:\Mi unidad\TAMUMX\TAMUMXGEO\Mortalidad\exceso_final\mex_data\dataMXExcess_report.csv)",row.names = FALSE)
-  
-Sys.time() - start_time
+PATH_CATALOGUE="mex_data/catalogo_entidades_mx.csv"
+excess_death_mx<-mortality_mx_pandemic %>% 
+  rename(deaths=count) %>% 
+  left_join(endemic_channel_mx %>% select(ent_regis,week_regis,q90), by=c('ent_regis','week_regis')) %>% 
+  rename(estimation_endemic_channel=q90) %>% 
+  left_join(estimation_farrington_mx_all, by=c('ent_regis','week_regis','anio_regis')
+            ) %>% 
+  left_join(estimation_farrington_mx %>% filter(anio_regis==2020) %>% select(-anio_regis), by=c('ent_regis','week_regis')
+            ) %>% 
+  left_join(read_csv(PATH_CATALOGUE,col_types = cols(ent_regis = col_integer())),by=c('ent_regis'))%>% 
+  mutate(date_ref=convertWeek(anio_regis,week_regis))
+
+
+
 
 ```
 
-```{r eval=False}
-  df %>% 
-  filter(anio_regis %in% c(2020,2021)) %>% 
-  rename(observed_deaths=count) %>% 
-  left_join(canal_endemico,by=c('ent_regis','week_regis')) %>% 
-  left_join(farrington_df,by=c('ent_regis','week_regis')) %>% 
-  rename(farrington_est=estimated) %>% 
-  left_join(defunciones_covid,by=c('anio_regis','ent_regis','week_regis')) %>% 
-  mutate(covid_deaths=replace_na_with_zeros(covid_deaths)) %>% head(20)
+```{r }
+ excess_death_mx %>%
+  filter(week_regis<53) %>%
+  ungroup() %>% 
+  select(c(10,8,4:7)) %>%  
+  pivot_longer(.,cols=3:6,names_to='metric',values_to='deaths') %>% 
+  filter(name=='NATIONAL') %>% 
+  filter(date_ref<ymd('2022-01-01')) %>%
+  ggplot() +
+  aes(x=date_ref,y=deaths,color=metric)+
+  geom_line()
+
 ```
 
-
-
-
-## Datos para pruebas de visualización
-
-
-```{r eval=FALSE}
-start_time <- Sys.time()
-
-PATH=r'(G:\Mi unidad\TAMUMX\TAMUMXGEO\Mortalidad\data\2020\Casos_Diarios_Estado_Nacional_Defunciones_20210524.csv)'
-metadata<- read_csv(PATH) %>% 
-  select(cve_ent,poblacion,nombre) %>%
-  rename(ent_regis=cve_ent) %>% 
-  distinct()
-
-
-df %>% 
-  filter(anio_regis %in% c(2020,2021)) %>% 
-  rename(observed_deaths=count) %>% 
-  left_join(canal_endemico,by=c('ent_regis','week_regis')) %>% 
-  left_join(farrington_df,by=c('ent_regis','week_regis')) %>% 
-  rename(farrington_est=estimated) %>% 
-  left_join(defunciones_covid,by=c('anio_regis','ent_regis','week_regis')) %>% 
-  mutate(covid_deaths=replace_na_with_zeros(covid_deaths)) %>%
-  left_join(metadata,by='ent_regis') %>%
-  write.csv(x=.,file=r"(G:\Mi unidad\TAMUMX\TAMUMXGEO\Mortalidad\dataMXExcess_report.csv)",row.names = FALSE)
-
-Sys.time() - start_time
-```
-
-
-```{r eval=FALSE}
-df %>% 
-  filter(anio_regis %in% c(2020,2021)) %>% 
-  rename(observed_deaths=count) %>% 
-  left_join(canal_endemico,by=c('ent_regis','week_regis')) %>% 
-  left_join(farrington_df,by=c('ent_regis','week_regis')) %>% 
-  rename(farrington_est=estimated) %>% 
-  left_join(defunciones_covid,by=c('anio_regis','ent_regis','week_regis')) %>% 
-  mutate(covid_deaths=replace_na_with_zeros(covid_deaths)) %>%
-  left_join(metadata,by='ent_regis') %>% 
-  head(10) %>% colnames()
-```
 
 
 

@@ -6,7 +6,7 @@ library(reshape2)
 library(readr)
 library(lubridate)
 library(scales)
-
+library(plotly)
 # Cargado de datos
 
 
@@ -140,7 +140,8 @@ ui <- fluidPage(
   br(),br(),
   plotOutput("myPlotcomparative"),
   
-  br(),br()
+  br(),br(),
+  plotlyOutput('plotlyplotcomparative')
   )
 
 
@@ -314,12 +315,30 @@ output$myPlotcomparative<-renderPlot({
     )+
     theme(legend.title=element_blank(), 
           legend.direction = "horizontal",
-          legend.text = element_text(size=8),
+         legend.text = element_text(size=8),
           legend.position = "bottom", 
           legend.key = element_blank(),
           axis.text.x = element_text(angle = 45, hjust=1)
     ) +
-    scale_x_date(breaks = pretty_breaks(10))
+    scale_x_date(breaks = pretty_breaks(10)) 
+  
+})
+
+output$plotlyplotcomparative<-renderPlotly({
+  df=data_metric()
+  excess_1= as.numeric(global_excess_plot1())
+  excess_2= as.numeric(global_excess_plot2())
+  
+  df %<>% 
+    filter(country == input$country_1 ) %>%
+    filter(state == input$state_1 ) %>%
+    rbind(
+      df %>% 
+        filter(country == input$country_2 ) %>%
+        filter(state == input$state_2 ))
+  
+  plot_ly(df,x=~date_ref,y=~metric,color=~state, type = 'scatter', mode = 'lines')
+  
   
 })
 

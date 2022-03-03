@@ -1,7 +1,4 @@
-
-
-library(shiny)
-
+library(stringi)
 library(shiny)
 library(tidyverse)
 library(glue)
@@ -11,9 +8,71 @@ library(readr)
 library(lubridate)
 library(scales)
 library(plotly)
+library(googlesheets4)
+# Funciones
+
+format_states<-function(state){
+  if(!is.na(str_match(state,"coahuila"))){
+    return('coahuila')
+  }else if(state=="50_states_and_district_of_columbia"){
+    return("united_states")
+  }else{
+    return(state)
+  }
+}
+
+updates_states_by_country<-function(data,country_)
+{
+  choices<-data %>% 
+    filter(country == country_) %>%
+    .$state %>% 
+    unique()
+  
+  default_choice<-ifelse(country_=='MX','National','United States')
+  
+  list(choices=choices,default=default_choice)
+}
+
+
 # Cargado de datos
 
+# Datos poblacionales obtenidos de wikipedia
+RATE_POP<-10000
+POP_SHEET_USA<-"1JaRml8MRpBX_20T69blVjwRd_5JSCTW0zN1p2as4wfI"
+pop_us<-read_sheet(POP_SHEET_USA,skip = 3) %>% 
+  select(c(1,3)) %>% 
+  rename(state=1,
+         pop=2) %>% 
+  mutate(pop=as.character(pop),
+         pop=str_replace_all(pop,',',''),
+         pop=str_replace_all(pop,"\\.",''),
+         pop=as.numeric(pop)/RATE_POP,
+         state=str_replace_all(str_to_lower(state),' ','_'),
+         state=stri_trans_general(state,id = "Latin-ASCII")
+         )
 
+POP_SHEET_MX<-"1-a9lMlnfkbBQkedx18KLZrSlLhMYmt9g48B5qL0jcCM"
+pop_mx<-read_sheet(POP_SHEET_MX,skip = 5) %>% 
+  select(4,7) %>% 
+  rename(state=1,
+         pop=2) %>% 
+  mutate(
+         pop=str_replace_all(pop,' ',''),
+         pop=as.numeric(pop)/RATE_POP,
+         state=str_replace_all(str_to_lower(state),' ','_'),
+         state=stri_trans_general(state,id = "Latin-ASCII")
+  )
+
+pop_global<-pop_mx %>% 
+  rbind(pop_us) %>%
+  mutate(
+    state_format=sapply(state,format_states)
+  ) %>% 
+  select(-state) %>% 
+  rbind(data.frame(state_format='national',pop=pop_mx %>%.$pop %>% sum()))
+  
+
+# Data integrada
 data<- read_csv('https://raw.githubusercontent.com/zyntonyson/tamu-excess-death/main/reports/excess_death_mx.csv') %>%
     filter(week_regis<=52) %>% 
     select(date_ref,name,deaths_count,farrington_partial,channel_endemic_estimation) %>% 
@@ -33,8 +92,13 @@ data<- read_csv('https://raw.githubusercontent.com/zyntonyson/tamu-excess-death/
         excess_channel_endemic=ifelse(excess_channel_endemic <0,0,excess_channel_endemic),
         excess_farrington=100*(deaths_count-farrington)/farrington,
         excess_farrington=ifelse(excess_farrington < 0,0,excess_farrington),
+        state_format=str_replace_all(str_to_lower(state),' ','_'),
+        state_format=stri_trans_general(state_format,id = "Latin-ASCII"),
         state=str_to_title(state)
-    )
+    ) %>% 
+  left_join(pop_global,by='state_format') %>% 
+  mutate(deaths_by_10k=deaths_count/pop) %>% 
+  select(-c(pop,state_format)) 
 
 
 states_mx<-data %>% 
@@ -50,21 +114,10 @@ states_us<-data %>%
     .$state %>% 
     unique()
 
-updates_states_by_country<-function(data,country_)
-{
-    choices<-data %>% 
-        filter(country == country_) %>%
-        .$state %>% 
-        unique()
-    
-    default_choice<-ifelse(country_=='MX','National','United States')
-    
-    list(choices=choices,default=default_choice)
-}
 
 country_ops<-c('US','MX')
-ent_op<-unique(data$name)
-metrics_ops<-unique(data$metric)
+#ent_op<-unique(data$name)
+#metrics_ops<-unique(data$metric)
 
 
 
@@ -81,7 +134,7 @@ ui <- fluidPage(
                h4('Metric'),       
                selectInput('metric',
                            label = "Metric for excess",
-                           choices = c('Channel Endemic','Farrington'),
+                           choices = c('Channel Endemic','Farrington','Deaths by 10K'),
                            selected = 'Farrington')),
         
         
@@ -153,9 +206,13 @@ server <- function(input, output,session) {
         if(input$metric=='Farrington'){
             data %>%
                 rename(metric=excess_farrington, raw_=farrington)
-        }else{
+        }else if(input$metric=='Channel Endemic'){
+          data %>%
+            rename(metric=excess_channel_endemic, raw_=channel_endemic_estimation)
+          }else{
             data %>%
-                rename(metric=excess_channel_endemic, raw_=channel_endemic_estimation)}
+              mutate(raw_=deaths_by_10k) %>% 
+                rename(metric=deaths_by_10k)}
         
     })
     
